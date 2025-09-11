@@ -2,13 +2,9 @@ name: Build and Deploy to AKS
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-
-permissions:
-  id-token: write
-  contents: read
+    branches: [main]
 
 env:
   IMAGE_NAME: weather-app
@@ -37,10 +33,8 @@ jobs:
       - name: Azure Login
         uses: azure/login@v1
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       - name: Setup Azure CLI
         uses: azure/cli@v2
         with:
@@ -59,7 +53,6 @@ jobs:
       - name: Deploy to AKS
         if: github.ref == 'refs/heads/main'
         run: |
-          # Check if the AKS cluster exists
           echo "Checking if AKS cluster exists..."
           if ! az aks show --resource-group "${{ secrets.RESOURCE_GROUP }}" --name "${{ secrets.CLUSTER_NAME }}" --output table; then
             echo "ERROR: AKS cluster '${{ secrets.CLUSTER_NAME }}' not found in resource group '${{ secrets.RESOURCE_GROUP }}'"
@@ -68,27 +61,22 @@ jobs:
             exit 1
           fi
 
-          # Get AKS credentials
           echo "Getting AKS credentials..."
           az aks get-credentials \
             --resource-group ${{ secrets.RESOURCE_GROUP }} \
             --name ${{ secrets.CLUSTER_NAME }} \
             --overwrite-existing
 
-          # Verify kubectl connection
           echo "Testing kubectl connection..."
           kubectl cluster-info
 
-          # Update deployment with new image
           echo "Updating deployment with image: $IMAGE_TAG"
           kubectl set image deployment/weather-app \
             weather-app=$IMAGE_TAG
 
-          # Wait for rollout to complete
           echo "Waiting for rollout to complete..."
           kubectl rollout status deployment/weather-app --timeout=600s
 
-          # Verify deployment
           echo "Deployment status:"
           kubectl get pods -l app=weather-app
           kubectl get service weather-app-service
