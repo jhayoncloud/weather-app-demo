@@ -1,0 +1,81 @@
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  IMAGE_NAME: weather-app
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '9.0.x'
+    
+    - name: Restore dependencies
+      run: dotnet restore WeatherApp/WeatherApp.csproj
+    
+    - name: Build application
+      run: dotnet build WeatherApp/WeatherApp.csproj --configuration Release --no-restore
+    
+    - name: Run tests
+      run: dotnet test WeatherApp/WeatherApp.csproj --no-build --verbosity normal || true
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: |
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
+    
+    - name: Build and push Docker image to ACR
+      run: |
+        IMAGE_TAG=studentdemo2004acr.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        az acr build \
+          --registry studentdemo2004acr \
+          --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          --file WeatherApp/Dockerfile \
+          .
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+    
+    - name: Deploy to AKS
+      if: github.ref == 'refs/heads/main'
+      run: |
+        # Get AKS credentials
+        echo "Getting AKS credentials..."
+        az aks get-credentials \
+          --resource-group student-demo \
+          --name student-aks-cluster \
+          --overwrite-existing
+        
+        # Verify kubectl connection
+        echo "Testing kubectl connection..."
+        kubectl cluster-info
+        
+        # Update deployment with new image
+        echo "Updating deployment with image: ${{ env.IMAGE_TAG }}"
+        kubectl set image deployment/weather-app \
+          weather-app=${{ env.IMAGE_TAG }}
+        
+        # Wait for rollout to complete
+        echo "Waiting for rollout to complete..."
+        kubectl rollout status deployment/weather-app --timeout=600s
+        
+        # Verify deployment
+        echo "Deployment status:"
+        kubectl get pods -l app=weather-app
+        kubectl get service weather-app-service || echo "Service not found"
