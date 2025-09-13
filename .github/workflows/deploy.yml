@@ -76,6 +76,6 @@ jobs:
           echo "Waiting for rollout to complete..."
           kubectl rollout status deployment/weather-app --timeout=600s
 
-          echo "Deployment status:"
+          echo "Deployment status:."
           kubectl get pods -l app=weather-app
           kubectl get service weather-app-service
